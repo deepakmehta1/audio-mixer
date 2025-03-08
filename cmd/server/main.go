@@ -8,18 +8,16 @@ import (
 )
 
 func main() {
-	// Load configuration.
 	cfg := config.LoadConfig()
-
-	// Create a Gin router.
 	router := gin.Default()
 
-	// Set up API routes.
 	api := router.Group("/api")
 	{
 		api.GET("/radio", handler.StreamRadioHandler)
+		api.POST("/radio/skip", handler.SkipRadioHandler)
+		api.POST("/radio/queue", handler.AddSongHandler)
+		api.GET("/radio/queue", handler.GetQueueHandler)
 	}
 
-	// Run the server.
 	router.Run(":" + cfg.Port)
 }
