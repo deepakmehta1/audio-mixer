@@ -11,7 +11,7 @@ type Config struct {
 func LoadConfig() Config {
 	// In a real app you might read from environment variables or a config file.
 	return Config{
-		Port:         "8080",
+		Port:         "8081",
 		MP3FilePath1: "song1.mp3",
 		MP3FilePath2: "song2.mp3",
 	}
