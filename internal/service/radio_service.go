@@ -47,75 +47,73 @@ func SkipCurrentSong() {
 	}
 }
 
-// StartStreaming starts a background goroutine that continuously reads songs from the queue
+// / StartStreaming starts a background goroutine that continuously reads songs from the queue
 // and broadcasts their data to the global broadcaster. This runs regardless of client connections.
 func StartStreaming() {
 	go func() {
 		for {
-			// Get a snapshot of the current queue.
+			// Pop the first song from the global queue.
 			queueMutex.Lock()
-			currentQueue := make([]string, len(songQueue))
-			copy(currentQueue, songQueue)
-			queueMutex.Unlock()
-
-			if len(currentQueue) == 0 {
+			if len(songQueue) == 0 {
+				queueMutex.Unlock()
 				log.Println("Queue is empty, waiting for songs...")
 				time.Sleep(1 * time.Second)
 				continue
 			}
+			// Remove the first song from the queue.
+			path := songQueue[0]
+			songQueue = songQueue[1:]
+			queueMutex.Unlock()
 
-			// Loop through songs in the current queue.
-			for _, path := range currentQueue {
-				log.Printf("Playing song: %s", path)
-				f, err := os.Open(path)
-				if err != nil {
-					log.Printf("Error opening %s: %v", path, err)
-					continue
-				}
-
-				// Create a channel to receive data chunks from the file reader.
-				chunkChan := make(chan []byte)
-				// Launch a goroutine to read the file in small chunks.
-				go func(file *os.File, out chan<- []byte, filePath string) {
-					defer close(out)
-					buf := make([]byte, 512) // smaller chunk size for frequent skip checks
-					for {
-						n, err := file.Read(buf)
-						if n > 0 {
-							// Copy the data before sending.
-							data := make([]byte, n)
-							copy(data, buf[:n])
-							out <- data
-						}
-						if err == io.EOF {
-							break
-						}
-						if err != nil {
-							log.Printf("Error reading from file %s: %v", filePath, err)
-							break
-						}
-						// Sleep briefly to slow the stream rate.
-						time.Sleep(15 * time.Millisecond)
-					}
-				}(f, chunkChan, path)
-
-			readLoop:
-				for {
-					select {
-					case <-skipChan:
-						log.Printf("Skip signal received, skipping song: %s", path)
-						break readLoop
-					case chunk, ok := <-chunkChan:
-						if !ok {
-							log.Printf("Finished song: %s", path)
-							break readLoop
-						}
-						// Broadcast the chunk.
-						GlobalBroadcaster.Broadcast(chunk)
-					}
-				}
-				f.Close()
+			log.Printf("Playing song: %s", path)
+			f, err := os.Open(path)
+			if err != nil {
+				log.Printf("Error opening %s: %v", path, err)
+				continue
 			}
+
+			// Create a channel to receive data chunks from the file reader.
+			chunkChan := make(chan []byte)
+			// Launch a goroutine to read the file in small chunks.
+			go func(file *os.File, out chan<- []byte, filePath string) {
+				defer close(out)
+				buf := make([]byte, 512) // smaller chunk size for frequent skip checks
+				for {
+					n, err := file.Read(buf)
+					if n > 0 {
+						// Copy the data before sending.
+						data := make([]byte, n)
+						copy(data, buf[:n])
+						out <- data
+					}
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						log.Printf("Error reading from file %s: %v", filePath, err)
+						break
+					}
+					// Sleep briefly to slow the stream rate.
+					time.Sleep(15 * time.Millisecond)
+				}
+			}(f, chunkChan, path)
+
+		readLoop:
+			for {
+				select {
+				case <-skipChan:
+					log.Printf("Skip signal received, skipping song: %s", path)
+					break readLoop
+				case chunk, ok := <-chunkChan:
+					if !ok {
+						log.Printf("Finished song: %s", path)
+						break readLoop
+					}
+					// Broadcast the chunk.
+					GlobalBroadcaster.Broadcast(chunk)
+				}
+			}
+			f.Close()
 		}
 	}()
 }
