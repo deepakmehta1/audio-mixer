@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"os"
 
 	"audio-mixer/internal/service"
 
@@ -25,17 +26,35 @@ func SkipRadioHandler(c *gin.Context) {
 }
 
 // AddSongHandler handles POST /api/radio/queue.
-// It expects a JSON body with a "path" field.
+// It now accepts an MP3 file via multipart form upload,
+// stores it in the "files/" folder, and then adds the saved file path to the queue.
 func AddSongHandler(c *gin.Context) {
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := c.BindJSON(&req); err != nil || req.Path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request. Provide a valid song path."})
+	// Retrieve the file from the "file" form field.
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "MP3 file is required (form field 'file')"})
 		return
 	}
-	service.AddSong(req.Path)
-	c.JSON(http.StatusOK, gin.H{"message": "Song added", "queue": service.GetQueue()})
+
+	// Optionally, you can check the file extension here.
+	// For example, ensure file.Filename ends with ".mp3"
+
+	// Ensure the "files" folder exists.
+	if err := os.MkdirAll("files", os.ModePerm); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create files folder"})
+		return
+	}
+
+	// Save the uploaded file in the "files/" folder.
+	savePath := "files/" + file.Filename
+	if err := c.SaveUploadedFile(file, savePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save MP3 file"})
+		return
+	}
+
+	// Add the saved file path to the global song queue.
+	service.AddSong(savePath)
+	c.JSON(http.StatusOK, gin.H{"message": "Song uploaded and added to queue", "path": savePath})
 }
 
 // GetQueueHandler handles GET /api/radio/queue.
