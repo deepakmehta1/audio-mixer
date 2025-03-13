@@ -47,8 +47,8 @@ func SkipCurrentSong() {
 	}
 }
 
-// / StartStreaming starts a background goroutine that continuously reads songs from the queue
-// and broadcasts their data to the global broadcaster. This runs regardless of client connections.
+// StartStreaming starts a background goroutine that continuously reads songs from the queue
+// and broadcasts their data to the global broadcaster.
 func StartStreaming() {
 	go func() {
 		for {
@@ -72,16 +72,13 @@ func StartStreaming() {
 				continue
 			}
 
-			// Create a channel to receive data chunks from the file reader.
 			chunkChan := make(chan []byte)
-			// Launch a goroutine to read the file in small chunks.
 			go func(file *os.File, out chan<- []byte, filePath string) {
 				defer close(out)
-				buf := make([]byte, 512) // smaller chunk size for frequent skip checks
+				buf := make([]byte, 512) // chunk size for frequent skip checks
 				for {
 					n, err := file.Read(buf)
 					if n > 0 {
-						// Copy the data before sending.
 						data := make([]byte, n)
 						copy(data, buf[:n])
 						out <- data
@@ -93,7 +90,6 @@ func StartStreaming() {
 						log.Printf("Error reading from file %s: %v", filePath, err)
 						break
 					}
-					// Sleep briefly to slow the stream rate.
 					time.Sleep(15 * time.Millisecond)
 				}
 			}(f, chunkChan, path)
@@ -109,7 +105,6 @@ func StartStreaming() {
 						log.Printf("Finished song: %s", path)
 						break readLoop
 					}
-					// Broadcast the chunk.
 					GlobalBroadcaster.Broadcast(chunk)
 				}
 			}

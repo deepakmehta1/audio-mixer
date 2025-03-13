@@ -9,19 +9,17 @@ import (
 )
 
 func main() {
-	// Load configuration.
 	cfg := config.LoadConfig()
 
-	// (Optional) Initialize the default queue with a song.
-	// This adds song1.mp3 to the global queue.
+	// Optionally, initialize the default queue with a local song.
 	service.AddSong(cfg.MP3FilePath1)
-	// You can add more songs as needed:
 	// service.AddSong(cfg.MP3FilePath2)
 
-	// Start the continuous streaming (global broadcaster).
+	// Start continuous streaming (broadcasting) in background.
 	service.StartStreaming()
+	// Start the YouTube conversion worker.
+	service.StartYTWorker()
 
-	// Set up the Gin server.
 	router := gin.Default()
 	api := router.Group("/api")
 	{
@@ -29,6 +27,7 @@ func main() {
 		api.POST("/radio/skip", handler.SkipRadioHandler)
 		api.POST("/radio/queue", handler.AddSongHandler)
 		api.GET("/radio/queue", handler.GetQueueHandler)
+		api.POST("/radio/youtube", handler.AddYouTubeSongHandler)
 	}
-	router.Run("0.0.0.0:" + cfg.Port)
+	router.Run(":" + cfg.Port)
 }
