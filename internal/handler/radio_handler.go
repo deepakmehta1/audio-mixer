@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 
+	"audio-mixer/internal/config"
 	"audio-mixer/internal/service"
 	"log"
 
@@ -79,7 +80,7 @@ func AddYouTubeSongHandler(c *gin.Context) {
 		return
 	}
 
-	service.EnqueueYTJob(req.URL)
+	service.EnqueueYTJob(req.URL, config.LoadConfig())
 	log.Printf("YouTube job enqueued for URL: %s", req.URL)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "YouTube conversion job enqueued. Song will be added to queue upon completion",

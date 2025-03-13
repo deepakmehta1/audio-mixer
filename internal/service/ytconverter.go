@@ -1,25 +1,40 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
-	"github.com/kkdai/youtube/v2"
+	"audio-mixer/internal/config"
+
 	ffmpeg "github.com/u2takey/ffmpeg-go"
 )
 
+// ytJob holds a YouTube conversion job.
+type ytJob struct {
+	url string
+	cfg config.Config
+}
+
 // Global channel for YouTube conversion jobs.
-var ytJobChan = make(chan string, 10)
+var ytJobChan = make(chan ytJob, 10)
+
+// DownloadResponse represents the JSON response from the external API.
+type DownloadResponse struct {
+	URL       string `json:"url"`
+	ExpiresAt string `json:"expiresAt"`
+}
 
 // StartYTWorker starts a background worker that processes YouTube conversion jobs.
 func StartYTWorker() {
 	go func() {
-		for url := range ytJobChan {
-			log.Printf("Processing YouTube conversion job: %s", url)
-			mp3Path, err := ConvertYouTubeToMP3(url)
+		for job := range ytJobChan {
+			log.Printf("Processing YouTube conversion job: %s", job.url)
+			mp3Path, err := ConvertYouTubeToMP3(job.url, job.cfg)
 			if err != nil {
 				log.Printf("Error converting YouTube media: %v", err)
 				continue
@@ -30,14 +45,17 @@ func StartYTWorker() {
 	}()
 }
 
-// EnqueueYTJob enqueues a YouTube conversion job.
-func EnqueueYTJob(url string) {
-	ytJobChan <- url
+// EnqueueYTJob enqueues a YouTube conversion job along with its configuration.
+func EnqueueYTJob(url string, cfg config.Config) {
+	ytJobChan <- ytJob{
+		url: url,
+		cfg: cfg,
+	}
 }
 
-// ConvertYouTubeToMP3 downloads a YouTube video and converts it to MP3.
+// ConvertYouTubeToMP3 downloads a YouTube video via an external API and converts it to MP3.
 // It returns the path to the resulting MP3 file.
-func ConvertYouTubeToMP3(url string) (string, error) {
+func ConvertYouTubeToMP3(youtubeURL string, cfg config.Config) (string, error) {
 	timestamp := time.Now().Unix()
 	inputFile := fmt.Sprintf("files/yt_media_%d.webm", timestamp)
 	outputFile := fmt.Sprintf("files/yt_media_%d.mp3", timestamp)
@@ -47,43 +65,52 @@ func ConvertYouTubeToMP3(url string) (string, error) {
 		return "", fmt.Errorf("failed to create files folder: %v", err)
 	}
 
-	client := youtube.Client{}
-	video, err := client.GetVideo(url)
+	// Construct the external API URL.
+	apiURL := fmt.Sprintf("https://zylalabs.com/api/6264/youtube+search+download+api/8850/download?v=%s", youtubeURL)
+
+	// Create a new HTTP request.
+	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("error getting video: %v", err)
+		return "", fmt.Errorf("error creating request: %v", err)
+	}
+	// Add Authorization header with bearer token if provided.
+	if cfg.YoutubeAPIKey != "" {
+		req.Header.Add("Authorization", "Bearer "+cfg.YoutubeAPIKey)
 	}
 
-	// Look for a format with audio channels that has Itag 251.
-	formats := video.Formats.WithAudioChannels()
-	var format *youtube.Format
-	for i, f := range formats {
-		if f.ItagNo == 251 {
-			format = &formats[i]
-			break
-		}
+	// Execute the request.
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("error calling download API: %v", err)
 	}
-	if format == nil {
-		if len(formats) == 0 {
-			return "", fmt.Errorf("no audio formats available")
-		}
-		// Fallback: use the first available format with audio.
-		format = &formats[0]
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download API returned status: %s", resp.Status)
 	}
 
-	// Create the file to store the downloaded video.
-	f, err := os.Create(inputFile)
+	var dlResp DownloadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&dlResp); err != nil {
+		return "", fmt.Errorf("error decoding API response: %v", err)
+	}
+
+	log.Printf("Download API returned URL: %s (expires at %s)", dlResp.URL, dlResp.ExpiresAt)
+
+	// Download the video using the returned URL.
+	out, err := os.Create(inputFile)
 	if err != nil {
 		return "", fmt.Errorf("error creating file: %v", err)
 	}
-	defer f.Close()
+	defer out.Close()
 
-	// Download the video into the file.
-	stream, _, err := client.GetStream(video, format)
+	downloadResp, err := http.Get(dlResp.URL)
 	if err != nil {
-		return "", fmt.Errorf("error getting video stream: %v", err)
+		return "", fmt.Errorf("error downloading video from API URL: %v", err)
 	}
-	if _, err := io.Copy(f, stream); err != nil {
-		return "", fmt.Errorf("error downloading video: %v", err)
+	defer downloadResp.Body.Close()
+
+	if _, err := io.Copy(out, downloadResp.Body); err != nil {
+		return "", fmt.Errorf("error saving video: %v", err)
 	}
 
 	// Convert the downloaded file to MP3 using ffmpeg-go.

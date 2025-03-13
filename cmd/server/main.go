@@ -12,12 +12,12 @@ func main() {
 	cfg := config.LoadConfig()
 
 	// Optionally, initialize the default queue with a local song.
-	service.AddSong(cfg.MP3FilePath1)
+	service.AddSong(cfg.MP3FilePath)
 	// service.AddSong(cfg.MP3FilePath2)
 
 	// Start continuous streaming (broadcasting) in background.
 	service.StartStreaming()
-	// Start the YouTube conversion worker.
+	// Start the YouTube conversion worker with the loaded configuration.
 	service.StartYTWorker()
 
 	router := gin.Default()
