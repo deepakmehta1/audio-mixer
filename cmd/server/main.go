@@ -30,5 +30,5 @@ func main() {
 		api.POST("/radio/queue", handler.AddSongHandler)
 		api.GET("/radio/queue", handler.GetQueueHandler)
 	}
-	router.Run(":" + cfg.Port)
+	router.Run("0.0.0.0:" + cfg.Port)
 }
