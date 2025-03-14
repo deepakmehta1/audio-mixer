@@ -53,8 +53,8 @@ func NextSong() string {
 func AddPrioritySong(path string) error {
 	queueMutex.Lock()
 	defer queueMutex.Unlock()
-	if len(priorityQueue) >= 2 {
-		return fmt.Errorf("priority queue is full (max 2 songs allowed)")
+	if len(priorityQueue) >= 20 {
+		return fmt.Errorf("priority queue is full (max 20 songs allowed)")
 	}
 	priorityQueue = append(priorityQueue, path)
 	log.Printf("Added priority song to queue: %s", path)
