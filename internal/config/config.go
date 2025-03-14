@@ -27,14 +27,6 @@ func LoadConfig() Config {
 		MP3FilePath:   os.Getenv("MP3FilePath"),
 		YoutubeAPIKey: os.Getenv("YOUTUBE_API_KEY"),
 	}
-
-	// Set default values if environment variables are not set.
-	if config.Port == "" {
-		config.Port = "8080"
-	}
-	if config.MP3FilePath == "" {
-		config.MP3FilePath = "song1.mp3"
-	}
-
+	log.Println("config ", config)
 	return config
 }
