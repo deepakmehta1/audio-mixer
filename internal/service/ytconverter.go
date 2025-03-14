@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"audio-mixer/internal/config"
@@ -23,6 +24,9 @@ type ytJob struct {
 // Global channel for YouTube conversion jobs.
 var ytJobChan = make(chan ytJob, 10)
 
+// Global mutex to signal a YouTube conversion is in progress.
+var ytConversionLock sync.Mutex
+
 // DownloadResponse represents the JSON response from the external API.
 type DownloadResponse struct {
 	URL       string `json:"url"`
@@ -33,14 +37,18 @@ type DownloadResponse struct {
 func StartYTWorker() {
 	go func() {
 		for job := range ytJobChan {
+			// Lock to signal a conversion is running.
+			ytConversionLock.Lock()
 			log.Printf("Processing YouTube conversion job: %s", job.url)
 			mp3Path, err := ConvertYouTubeToMP3(job.url, job.cfg)
 			if err != nil {
 				log.Printf("Error converting YouTube media: %v", err)
+				ytConversionLock.Unlock()
 				continue
 			}
 			AddSong(mp3Path)
 			log.Printf("YouTube conversion finished, added file to queue: %s", mp3Path)
+			ytConversionLock.Unlock()
 		}
 	}()
 }
@@ -51,6 +59,12 @@ func EnqueueYTJob(url string, cfg config.Config) {
 		url: url,
 		cfg: cfg,
 	}
+}
+
+// WaitForYTConversion waits until any ongoing YouTube conversion finishes.
+func WaitForYTConversion() {
+	ytConversionLock.Lock()
+	ytConversionLock.Unlock()
 }
 
 // ConvertYouTubeToMP3 downloads a YouTube video via an external API and converts it to MP3.
