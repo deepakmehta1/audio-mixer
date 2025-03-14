@@ -1,15 +1,40 @@
 package config
 
-// Config holds the application settings.
+import (
+	"log"
+	"os"
+
+	"github.com/joho/godotenv"
+)
+
 type Config struct {
 	Port          string
-	YoutubeAPIKey string // optional API key for YouTube conversion
+	YoutubeAPIKey string
+	HLSBaseURL    string
 }
 
-// LoadConfig loads and returns the configuration.
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
+}
+
+// LoadConfig loads configuration from environment variables.
 func LoadConfig() Config {
 	return Config{
-		Port:          "8080",
-		YoutubeAPIKey: "", // set your API key if needed
+		Port:          getEnv("PORT", "8080"),
+		YoutubeAPIKey: getEnv("YOUTUBE_API_KEY", ""),
+		HLSBaseURL:    getEnv("HLS_BASE_URL", "http://localhost:8080/hls/"),
 	}
+}
+
+var GlobalConfig Config
+
+func init() {
+	// Load .env file if it exists.
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found")
+	}
+	GlobalConfig = LoadConfig()
 }

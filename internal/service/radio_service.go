@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"time"
 
+	"audio-mixer/internal/config"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -35,15 +37,12 @@ func StartStreaming() {
 			}
 
 			log.Printf("Playing song (HLS): %s", path)
-			// Clear the HLS folder.
+			// Clear and prepare the HLS folder.
 			os.RemoveAll("./hls")
 			os.MkdirAll("./hls", 0755)
 
 			// Build an FFmpeg command to generate HLS segments.
-			// -re: read input at native frame rate
-			// -hls_time 5: each segment ~5 seconds
-			// -hls_list_size 0: list all segments
-			// -hls_segment_filename: template for segment filenames
+			// Use the base URL from configuration.
 			cmd := exec.Command("ffmpeg",
 				"-re",
 				"-i", path,
@@ -53,7 +52,7 @@ func StartStreaming() {
 				"-hls_list_size", "0",
 				"-force_key_frames", "expr:gte(t,n_forced*2)",
 				"-hls_segment_filename", "./hls/hls_%03d.ts",
-				"-hls_base_url", "http://localhost:8080/hls/", // <--- Important
+				"-hls_base_url", config.GlobalConfig.HLSBaseURL,
 				"./hls/index.m3u8",
 			)
 
@@ -83,20 +82,18 @@ func StartStreaming() {
 					break waitLoop
 				}
 			}
-			// After ffmpeg is done (either naturally or via skip), loop to next song.
+			// After ffmpeg is done, move on to the next song.
 		}
 	}()
 }
 
 // StreamRadio is the HTTP handler used by new subscribers.
-// It simply serves the HLS manifest (index.m3u8) from the hls folder.
+// It serves the HLS manifest (index.m3u8) so that clients can play the HLS stream.
 func StreamRadio(c *gin.Context) error {
-	// Check if the HLS manifest exists.
 	if _, err := os.Stat("./hls/index.m3u8"); os.IsNotExist(err) {
 		c.String(404, "HLS stream not ready")
 		return nil
 	}
-	// Serve the HLS manifest file.
 	c.File("./hls/index.m3u8")
 	return nil
 }
