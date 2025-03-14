@@ -1,41 +1,18 @@
 package service
 
 import (
-	"io"
 	"log"
-	"net/http"
 	"os"
-	"sync"
+	"os/exec"
 	"time"
+
+	"audio-mixer/internal/config"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Global song queue and mutex for safe concurrent access.
-var (
-	songQueue  []string
-	queueMutex sync.Mutex
-)
-
 // Global skip channel (buffered so that sends are non-blocking)
 var skipChan = make(chan struct{}, 1)
-
-// AddSong adds a new song path to the global song queue.
-func AddSong(path string) {
-	queueMutex.Lock()
-	defer queueMutex.Unlock()
-	songQueue = append(songQueue, path)
-	log.Printf("Added song to queue: %s", path)
-}
-
-// GetQueue returns a copy of the current song queue.
-func GetQueue() []string {
-	queueMutex.Lock()
-	defer queueMutex.Unlock()
-	queueCopy := make([]string, len(songQueue))
-	copy(queueCopy, songQueue)
-	return queueCopy
-}
 
 // SkipCurrentSong sends a signal to skip the current song.
 func SkipCurrentSong() {
@@ -47,98 +24,76 @@ func SkipCurrentSong() {
 	}
 }
 
-// StartStreaming starts a background goroutine that continuously reads songs from the queue
-// and broadcasts their data to the global broadcaster.
+// StartStreaming starts a background goroutine that continuously plays songs
+// from the queues (priority first, then regular circular queue) and generates HLS segments.
 func StartStreaming() {
 	go func() {
 		for {
-			// Pop the first song from the global queue.
-			queueMutex.Lock()
-			if len(songQueue) == 0 {
-				queueMutex.Unlock()
-				log.Println("Queue is empty, waiting for songs...")
+			path := NextSong()
+			if path == "" {
+				log.Println("No songs in either queue, waiting for songs...")
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			// Remove the first song from the queue.
-			path := songQueue[0]
-			songQueue = songQueue[1:]
-			queueMutex.Unlock()
 
-			log.Printf("Playing song: %s", path)
-			f, err := os.Open(path)
-			if err != nil {
-				log.Printf("Error opening %s: %v", path, err)
+			log.Printf("Playing song (HLS): %s", path)
+			// Clear and prepare the HLS folder.
+			os.RemoveAll("./hls")
+			os.MkdirAll("./hls", 0755)
+
+			// Build an FFmpeg command to generate HLS segments.
+			// Use the base URL from configuration.
+			cmd := exec.Command("ffmpeg",
+				"-re",
+				"-i", path,
+				"-c:a", "aac",
+				"-b:a", "192k",
+				"-hls_time", "4",
+				"-hls_list_size", "0",
+				"-force_key_frames", "expr:gte(t,n_forced*2)",
+				"-hls_segment_filename", "./hls/hls_%03d.ts",
+				"-hls_base_url", config.GlobalConfig.HLSBaseURL,
+				"./hls/index.m3u8",
+			)
+
+			if err := cmd.Start(); err != nil {
+				log.Printf("Error starting ffmpeg for %s: %v", path, err)
 				continue
 			}
 
-			chunkChan := make(chan []byte)
-			go func(file *os.File, out chan<- []byte, filePath string) {
-				defer close(out)
-				buf := make([]byte, 512) // chunk size for frequent skip checks
-				for {
-					n, err := file.Read(buf)
-					if n > 0 {
-						data := make([]byte, n)
-						copy(data, buf[:n])
-						out <- data
-					}
-					if err == io.EOF {
-						break
-					}
-					if err != nil {
-						log.Printf("Error reading from file %s: %v", filePath, err)
-						break
-					}
-					time.Sleep(15 * time.Millisecond)
-				}
-			}(f, chunkChan, path)
+			done := make(chan error, 1)
+			go func() {
+				done <- cmd.Wait()
+			}()
 
-		readLoop:
+		waitLoop:
 			for {
 				select {
 				case <-skipChan:
-					log.Printf("Skip signal received, skipping song: %s", path)
-					break readLoop
-				case chunk, ok := <-chunkChan:
-					if !ok {
-						log.Printf("Finished song: %s", path)
-						break readLoop
+					log.Printf("Skip signal received for %s. Killing ffmpeg...", path)
+					cmd.Process.Kill()
+					break waitLoop
+				case err := <-done:
+					if err != nil {
+						log.Printf("ffmpeg ended with error for song %s: %v", path, err)
+					} else {
+						log.Printf("Finished song (HLS): %s", path)
 					}
-					GlobalBroadcaster.Broadcast(chunk)
+					break waitLoop
 				}
 			}
-			f.Close()
+			// After ffmpeg is done, move on to the next song.
 		}
 	}()
 }
 
 // StreamRadio is the HTTP handler used by new subscribers.
-// It subscribes to the global broadcaster and writes data from the live stream
-// to the HTTP response, allowing clients to "tune in" live.
+// It serves the HLS manifest (index.m3u8) so that clients can play the HLS stream.
 func StreamRadio(c *gin.Context) error {
-	sub := GlobalBroadcaster.Subscribe()
-	defer GlobalBroadcaster.Unsubscribe(sub)
-
-	c.Writer.Header().Set("Content-Type", "audio/mpeg")
-	c.Status(http.StatusOK)
-
-	for {
-		select {
-		case data, ok := <-sub:
-			if !ok {
-				return nil
-			}
-			_, err := c.Writer.Write(data)
-			if err != nil {
-				log.Printf("Error writing to HTTP response: %v", err)
-				return err
-			}
-			if f, ok := c.Writer.(http.Flusher); ok {
-				f.Flush()
-			}
-		case <-c.Request.Context().Done():
-			return nil
-		}
+	if _, err := os.Stat("./hls/index.m3u8"); os.IsNotExist(err) {
+		c.String(404, "HLS stream not ready")
+		return nil
 	}
+	c.File("./hls/index.m3u8")
+	return nil
 }

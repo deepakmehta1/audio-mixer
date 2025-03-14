@@ -2,14 +2,47 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Continuous Radio Stream</title>
+  <title>HLS Test Page</title>
 </head>
 <body>
-  <h1>Continuous Radio Stream</h1>
-  <!-- The audio element with autoplay and controls -->
-  <audio controls autoplay>
-    <source src="https://d2uy1y4i08wvob.cloudfront.net/api/radio/" type="audio/mpeg">
-    Your browser does not support the audio element.
-  </audio>
+  <h1>HLS Test</h1>
+  <video id="video" controls autoplay width="640" height="360"></video>
+
+  <!-- Include hls.js from a CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    // The URL of your HLS manifest (served by your Go server).
+    // Typically: http://localhost:8080/api/radio
+    const videoURL = 'http://localhost:8080/api/radio';
+
+    const video = document.getElementById('video');
+
+    if (Hls.isSupported()) {
+      // If hls.js is supported, we can parse .m3u8 in Chrome/Firefox, etc.
+      const hls = new Hls();
+      hls.loadSource(videoURL);
+      hls.attachMedia(video);
+
+      // Optional: handle events, e.g. when the manifest is parsed.
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        console.log('Manifest parsed, playing video...');
+        video.play();
+      });
+
+      hls.on(Hls.Events.ERROR, function (event, data) {
+        console.error('HLS error:', data);
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Safari natively supports HLS.
+      video.src = videoURL;
+      video.addEventListener('loadedmetadata', function () {
+        console.log('Safari: loaded metadata, playing video...');
+        video.play();
+      });
+    } else {
+      // Neither hls.js nor native HLS is supported.
+      alert('Your browser does not support HLS or hls.js.');
+    }
+  </script>
 </body>
 </html>

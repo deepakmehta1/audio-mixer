@@ -7,26 +7,34 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// Config holds the application settings.
 type Config struct {
 	Port          string
-	MP3FilePath   string
 	YoutubeAPIKey string
+	HLSBaseURL    string
 }
 
-// LoadConfig loads configuration settings from a .env file and environment variables.
-// It returns a Config instance with defaults if variables are missing.
-func LoadConfig() Config {
-	// Attempt to load .env file; log a message if it's not found.
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using default environment variables")
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
 	}
+	return fallback
+}
 
-	config := Config{
-		Port:          os.Getenv("PORT"),
-		MP3FilePath:   os.Getenv("MP3FilePath"),
-		YoutubeAPIKey: os.Getenv("YOUTUBE_API_KEY"),
+// LoadConfig loads configuration from environment variables.
+func LoadConfig() Config {
+	return Config{
+		Port:          getEnv("PORT", "8080"),
+		YoutubeAPIKey: getEnv("YOUTUBE_API_KEY", ""),
+		HLSBaseURL:    getEnv("HLS_BASE_URL", "http://localhost:8080/hls/"),
 	}
-	log.Println("config ", config)
-	return config
+}
+
+var GlobalConfig Config
+
+func init() {
+	// Load .env file if it exists.
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found")
+	}
+	GlobalConfig = LoadConfig()
 }
