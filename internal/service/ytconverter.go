@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"audio-mixer/internal/config"
@@ -24,9 +23,6 @@ type ytJob struct {
 // Global channel for YouTube conversion jobs.
 var ytJobChan = make(chan ytJob, 10)
 
-// Global mutex to signal a YouTube conversion is in progress.
-var ytConversionLock sync.Mutex
-
 // DownloadResponse represents the JSON response from the external API.
 type DownloadResponse struct {
 	URL       string `json:"url"`
@@ -37,18 +33,14 @@ type DownloadResponse struct {
 func StartYTWorker() {
 	go func() {
 		for job := range ytJobChan {
-			// Lock to signal a conversion is running.
-			ytConversionLock.Lock()
 			log.Printf("Processing YouTube conversion job: %s", job.url)
 			mp3Path, err := ConvertYouTubeToMP3(job.url, job.cfg)
 			if err != nil {
 				log.Printf("Error converting YouTube media: %v", err)
-				ytConversionLock.Unlock()
 				continue
 			}
-			AddSong(mp3Path)
-			log.Printf("YouTube conversion finished, added file to queue: %s", mp3Path)
-			ytConversionLock.Unlock()
+			AddRegularSong(mp3Path)
+			log.Printf("YouTube conversion finished, added file to regular queue: %s", mp3Path)
 		}
 	}()
 }
@@ -59,12 +51,6 @@ func EnqueueYTJob(url string, cfg config.Config) {
 		url: url,
 		cfg: cfg,
 	}
-}
-
-// WaitForYTConversion waits until any ongoing YouTube conversion finishes.
-func WaitForYTConversion() {
-	ytConversionLock.Lock()
-	ytConversionLock.Unlock()
 }
 
 // ConvertYouTubeToMP3 downloads a YouTube video via an external API and converts it to MP3.
@@ -79,20 +65,16 @@ func ConvertYouTubeToMP3(youtubeURL string, cfg config.Config) (string, error) {
 		return "", fmt.Errorf("failed to create files folder: %v", err)
 	}
 
-	// Construct the external API URL.
 	apiURL := fmt.Sprintf("https://zylalabs.com/api/6264/youtube+search+download+api/8850/download?v=%s", youtubeURL)
 
-	// Create a new HTTP request.
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("error creating request: %v", err)
 	}
-	// Add Authorization header with bearer token if provided.
 	if cfg.YoutubeAPIKey != "" {
 		req.Header.Add("Authorization", "Bearer "+cfg.YoutubeAPIKey)
 	}
 
-	// Execute the request.
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error calling download API: %v", err)
@@ -110,7 +92,6 @@ func ConvertYouTubeToMP3(youtubeURL string, cfg config.Config) (string, error) {
 
 	log.Printf("Download API returned URL: %s (expires at %s)", dlResp.URL, dlResp.ExpiresAt)
 
-	// Download the video using the returned URL.
 	out, err := os.Create(inputFile)
 	if err != nil {
 		return "", fmt.Errorf("error creating file: %v", err)
@@ -127,7 +108,6 @@ func ConvertYouTubeToMP3(youtubeURL string, cfg config.Config) (string, error) {
 		return "", fmt.Errorf("error saving video: %v", err)
 	}
 
-	// Convert the downloaded file to MP3 using ffmpeg-go.
 	err = ffmpeg.Input(inputFile).
 		Output(outputFile, ffmpeg.KwArgs{
 			"vn":  "",
