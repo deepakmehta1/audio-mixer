@@ -29,8 +29,11 @@ func SkipRadioHandler(c *gin.Context) {
 
 // AddSongHandler handles POST /api/radio/queue.
 // It accepts an MP3 file via multipart form data, saves it to the "files" folder,
-// and adds its path to the queue.
+// waits for any ongoing YouTube conversion to finish, and then adds its path to the queue.
 func AddSongHandler(c *gin.Context) {
+	// Wait for any ongoing YouTube conversion to finish.
+	service.WaitForYTConversion()
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "MP3 file is required (form field 'file')"})
@@ -80,7 +83,8 @@ func AddYouTubeSongHandler(c *gin.Context) {
 		return
 	}
 
-	service.EnqueueYTJob(req.URL, config.LoadConfig())
+	cfg := config.LoadConfig()
+	service.EnqueueYTJob(req.URL, cfg)
 	log.Printf("YouTube job enqueued for URL: %s", req.URL)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "YouTube conversion job enqueued. Song will be added to queue upon completion",
