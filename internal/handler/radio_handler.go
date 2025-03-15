@@ -83,6 +83,6 @@ func AddYouTubeSongHandler(c *gin.Context) {
 	service.EnqueueYTJob(req.URL, cfg)
 	log.Printf("YouTube job enqueued for URL: %s", req.URL)
 	c.JSON(http.StatusOK, gin.H{
-		"message": "YouTube conversion job enqueued. Song will be added to regular queue upon completion",
+		"message": "YouTube conversion job enqueued. Song will be added to priority queue upon completion",
 	})
 }

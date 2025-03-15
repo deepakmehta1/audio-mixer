@@ -39,8 +39,14 @@ func StartYTWorker() {
 				log.Printf("Error converting YouTube media: %v", err)
 				continue
 			}
-			AddRegularSong(mp3Path)
-			log.Printf("YouTube conversion finished, added file to regular queue: %s", mp3Path)
+			// Instead of adding to the regular queue, add to the priority queue.
+			if err := AddPrioritySong(mp3Path); err != nil {
+				log.Printf("Error adding YouTube song to priority queue: %v", err)
+				// As a fallback, you might add it to the regular queue:
+				// AddRegularSong(mp3Path)
+			} else {
+				log.Printf("YouTube conversion finished, added file to priority queue: %s", mp3Path)
+			}
 		}
 	}()
 }
