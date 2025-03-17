@@ -33,6 +33,7 @@ func LoadRegularQueue(path string) error {
 
 // NextSong returns the next song to play.
 // It checks the priority queue first; if empty, it pops from the regular queue in a circular fashion.
+// Additionally, if the popped song is not the jingle, it enqueues the jingle immediately after.
 func NextSong() string {
 	queueMutex.Lock()
 	defer queueMutex.Unlock()
@@ -42,8 +43,15 @@ func NextSong() string {
 		return song
 	}
 	if len(regularQueue) > 0 {
+		// Pop the first song from the regular queue.
 		song := regularQueue[0]
-		regularQueue = append(regularQueue[1:], song)
+		regularQueue = regularQueue[1:]
+		// If this song is not the jingle, then insert the jingle as the next song.
+		if song != "files/tingo_jingle.mp3" {
+			regularQueue = append([]string{"files/tingo_jingle.mp3"}, regularQueue...)
+		}
+		// Re-append the current song to the end to maintain circular behavior.
+		regularQueue = append(regularQueue, song)
 		return song
 	}
 	return ""
