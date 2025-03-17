@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"audio-mixer/internal/config"
 	"audio-mixer/internal/handler"
@@ -14,22 +15,24 @@ import (
 func main() {
 	cfg := config.LoadConfig()
 
-	// Load the regular queue from the static file.
+	// Load the regular queue from the local static file.
 	if err := service.LoadRegularQueue("files/songs.json"); err != nil {
-		log.Printf("Warning: could not load regular queue: %v", err)
+		log.Printf("Warning: could not load regular queue from local file: %v", err)
 	} else {
 		log.Printf("Regular queue loaded from files/songs.json")
 	}
+
+	// Schedule a refresh from S3; new songs will be appended to the regular queue.
+	bucketName := "tingo-regular-queue"
+	prefix := "songs/"
+	service.ScheduleS3QueueRefresh(bucketName, prefix, 5*time.Hour)
 
 	// Start continuous HLS streaming.
 	service.StartStreaming()
 	// Start the YouTube conversion worker.
 	service.StartYTWorker()
 
-	// Create the Gin router.
 	router := gin.Default()
-
-	// 1) Enable CORS with desired settings.
 	router.Use(cors.New(cors.Config{
 		AllowAllOrigins:  true,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -38,22 +41,16 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	// 2) Serve HLS segments from the hls folder.
 	router.Static("/hls", "./hls")
 
-	// 3) Define your API routes.
 	api := router.Group("/api")
 	{
-		// Clients tune in by requesting the HLS manifest.
 		api.GET("/radio", handler.StreamRadioHandler)
 		api.POST("/radio/skip", handler.SkipRadioHandler)
 		api.GET("/radio/queue", handler.GetPriorityQueueHandler)
-		// Priority song uploads.
 		api.POST("/radio/queue", handler.AddPrioritySongHandler)
-		// YouTube song enqueuing.
 		api.POST("/radio/youtube", handler.AddYouTubeSongHandler)
 	}
 
-	// 4) Run the server on the configured port.
 	router.Run(":" + cfg.Port)
 }
